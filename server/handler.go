@@ -38,6 +38,41 @@ func ExecuteCommand(cmd string, args []string) string {
 		return handler.append(args)
 	case "STRLEN":
 		return handler.strlen(args)
+	// List commands
+	case "LPUSH":
+		return handler.lpush(args)
+	case "RPUSH":
+		return handler.rpush(args)
+	case "LRANGE":
+		return handler.lrange(args)
+	case "LLEN":
+		return handler.llen(args)
+	case "LINDEX":
+		return handler.lindex(args)
+	// Hash commands
+	case "HSET":
+		return handler.hset(args)
+	case "HGET":
+		return handler.hget(args)
+	case "HGETALL":
+		return handler.hgetall(args)
+	case "HDEL":
+		return handler.hdel(args)
+	case "HEXISTS":
+		return handler.hexists(args)
+	case "HLEN":
+		return handler.hlen(args)
+	// Set commands
+	case "SADD":
+		return handler.sadd(args)
+	case "SMEMBERS":
+		return handler.smembers(args)
+	case "SISMEMBER":
+		return handler.sismember(args)
+	case "SCARD":
+		return handler.scard(args)
+	case "SREM":
+		return handler.srem(args)
 	default:
 		return EncodeError("ERR unknown command '" + cmd + "'")
 	}
@@ -185,6 +220,234 @@ func (h *Handler) strlen(args []string) string {
 	}
 
 	return EncodeInteger(int64(len(value)))
+}
+
+// ==================== List Commands ====================
+
+// lpush handles the LPUSH command
+func (h *Handler) lpush(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'lpush' command")
+	}
+	key := args[0]
+	values := args[1:]
+	count := LPush(key, values...)
+	return EncodeInteger(int64(count))
+}
+
+// rpush handles the RPUSH command
+func (h *Handler) rpush(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'rpush' command")
+	}
+	key := args[0]
+	values := args[1:]
+	count := RPush(key, values...)
+	return EncodeInteger(int64(count))
+}
+
+// lrange handles the LRANGE command
+func (h *Handler) lrange(args []string) string {
+	if len(args) < 3 {
+		return EncodeError("ERR wrong number of arguments for 'lrange' command")
+	}
+	key := args[0]
+
+	start, err := strconv.Atoi(args[1])
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+	stop, err := strconv.Atoi(args[2])
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+
+	items, ok := LRange(key, start, stop)
+	if !ok {
+		return EncodeArray([]string{})
+	}
+	return EncodeArray(items)
+}
+
+// llen handles the LLEN command
+func (h *Handler) llen(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'llen' command")
+	}
+	key := args[0]
+	count := LLen(key)
+	return EncodeInteger(int64(count))
+}
+
+// lindex handles the LINDEX command
+func (h *Handler) lindex(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'lindex' command")
+	}
+	key := args[0]
+
+	index, err := strconv.Atoi(args[1])
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+
+	value, ok := LIndex(key, index)
+	if !ok {
+		return EncodeNull()
+	}
+	return EncodeBulkString(value)
+}
+
+// ==================== Hash Commands ====================
+
+// hset handles the HSET command
+func (h *Handler) hset(args []string) string {
+	if len(args) < 3 {
+		return EncodeError("ERR wrong number of arguments for 'hset' command")
+	}
+	key := args[0]
+	field := args[1]
+	value := args[2]
+
+	count := HSet(key, field, value)
+	return EncodeInteger(int64(count))
+}
+
+// hget handles the HGET command
+func (h *Handler) hget(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'hget' command")
+	}
+	key := args[0]
+	field := args[1]
+
+	value, ok := HGet(key, field)
+	if !ok {
+		return EncodeNull()
+	}
+	return EncodeBulkString(value)
+}
+
+// hgetall handles the HGETALL command
+func (h *Handler) hgetall(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'hgetall' command")
+	}
+	key := args[0]
+
+	data, ok := HGetAll(key)
+	if !ok {
+		return EncodeArray([]string{})
+	}
+
+	// Return as field1, value1, field2, value2, ...
+	result := make([]string, 0, len(data)*2)
+	for k, v := range data {
+		result = append(result, k, v)
+	}
+	return EncodeArray(result)
+}
+
+// hdel handles the HDEL command
+func (h *Handler) hdel(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'hdel' command")
+	}
+	key := args[0]
+	fields := args[1:]
+
+	count := HDel(key, fields...)
+	return EncodeInteger(int64(count))
+}
+
+// hexists handles the HEXISTS command
+func (h *Handler) hexists(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'hexists' command")
+	}
+	key := args[0]
+	field := args[1]
+
+	if HExists(key, field) {
+		return EncodeInteger(1)
+	}
+	return EncodeInteger(0)
+}
+
+// hlen handles the HLEN command
+func (h *Handler) hlen(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'hlen' command")
+	}
+	key := args[0]
+
+	count := HLen(key)
+	return EncodeInteger(int64(count))
+}
+
+// ==================== Set Commands ====================
+
+// sadd handles the SADD command
+func (h *Handler) sadd(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'sadd' command")
+	}
+	key := args[0]
+	members := args[1:]
+
+	count := SAdd(key, members...)
+	return EncodeInteger(int64(count))
+}
+
+// smembers handles the SMEMBERS command
+func (h *Handler) smembers(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'smembers' command")
+	}
+	key := args[0]
+
+	members, ok := SMembers(key)
+	if !ok {
+		return EncodeArray([]string{})
+	}
+	return EncodeArray(members)
+}
+
+// sismember handles the SISMEMBER command
+func (h *Handler) sismember(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'sismember' command")
+	}
+	key := args[0]
+	member := args[1]
+
+	if SIsMember(key, member) {
+		return EncodeInteger(1)
+	}
+	return EncodeInteger(0)
+}
+
+// scard handles the SCARD command
+func (h *Handler) scard(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'scard' command")
+	}
+	key := args[0]
+
+	count := SCard(key)
+	return EncodeInteger(int64(count))
+}
+
+// srem handles the SREM command
+func (h *Handler) srem(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'srem' command")
+	}
+	key := args[0]
+	members := args[1:]
+
+	count := SRem(key, members...)
+	return EncodeInteger(int64(count))
 }
 
 // Debug helper
