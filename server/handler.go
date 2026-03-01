@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // Handler handles Redis commands
@@ -29,6 +30,14 @@ func ExecuteCommand(cmd string, args []string) string {
 		return handler.del(args)
 	case "EXISTS":
 		return handler.exists(args)
+	case "INCR":
+		return handler.incr(args)
+	case "DECR":
+		return handler.decr(args)
+	case "APPEND":
+		return handler.append(args)
+	case "STRLEN":
+		return handler.strlen(args)
 	default:
 		return EncodeError("ERR unknown command '" + cmd + "'")
 	}
@@ -96,6 +105,86 @@ func (h *Handler) exists(args []string) string {
 		}
 	}
 	return EncodeInteger(int64(count))
+}
+
+// incr handles the INCR command
+func (h *Handler) incr(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'incr' command")
+	}
+	key := args[0]
+
+	value, ok := Get(key)
+	if !ok {
+		Set(key, "1")
+		return EncodeInteger(1)
+	}
+
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+
+	n++
+	Set(key, strconv.FormatInt(n, 10))
+	return EncodeInteger(n)
+}
+
+// decr handles the DECR command
+func (h *Handler) decr(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'decr' command")
+	}
+	key := args[0]
+
+	value, ok := Get(key)
+	if !ok {
+		Set(key, "-1")
+		return EncodeInteger(-1)
+	}
+
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+
+	n--
+	Set(key, strconv.FormatInt(n, 10))
+	return EncodeInteger(n)
+}
+
+// append handles the APPEND command
+func (h *Handler) append(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'append' command")
+	}
+	key := args[0]
+	value := args[1]
+
+	oldValue, ok := Get(key)
+	if !ok {
+		Set(key, value)
+		return EncodeInteger(int64(len(value)))
+	}
+
+	newValue := oldValue + value
+	Set(key, newValue)
+	return EncodeInteger(int64(len(newValue)))
+}
+
+// strlen handles the STRLEN command
+func (h *Handler) strlen(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'strlen' command")
+	}
+	key := args[0]
+
+	value, ok := Get(key)
+	if !ok {
+		return EncodeInteger(0)
+	}
+
+	return EncodeInteger(int64(len(value)))
 }
 
 // Debug helper
