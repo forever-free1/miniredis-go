@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Handler handles Redis commands
@@ -73,6 +74,11 @@ func ExecuteCommand(cmd string, args []string) string {
 		return handler.scard(args)
 	case "SREM":
 		return handler.srem(args)
+	// Expire/TTL commands
+	case "EXPIRE":
+		return handler.expire(args)
+	case "TTL":
+		return handler.ttl(args)
 	default:
 		return EncodeError("ERR unknown command '" + cmd + "'")
 	}
@@ -107,6 +113,18 @@ func (h *Handler) set(args []string) string {
 	}
 	key := args[0]
 	value := args[1]
+
+	// Check for EX option
+	for i := 2; i < len(args); i++ {
+		if args[i] == "EX" && i+1 < len(args) {
+			seconds, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return EncodeError("ERR value is not an integer or out of range")
+			}
+			SetWithExpire(key, value, time.Duration(seconds)*time.Second)
+			return EncodeSimpleString("OK")
+		}
+	}
 
 	Set(key, value)
 	return EncodeSimpleString("OK")
@@ -448,6 +466,37 @@ func (h *Handler) srem(args []string) string {
 
 	count := SRem(key, members...)
 	return EncodeInteger(int64(count))
+}
+
+// expire handles the EXPIRE command
+func (h *Handler) expire(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'expire' command")
+	}
+	key := args[0]
+	seconds, err := strconv.Atoi(args[1])
+	if err != nil {
+		return EncodeError("ERR value is not an integer or out of range")
+	}
+
+	if Expire(key, seconds) {
+		return EncodeInteger(1)
+	}
+	return EncodeInteger(0)
+}
+
+// ttl handles the TTL command
+func (h *Handler) ttl(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'ttl' command")
+	}
+	key := args[0]
+
+	ttl, ok := TTL(key)
+	if !ok {
+		return EncodeInteger(-2)
+	}
+	return EncodeInteger(int64(ttl))
 }
 
 // Debug helper
