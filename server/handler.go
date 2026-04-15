@@ -79,6 +79,17 @@ func ExecuteCommand(cmd string, args []string) string {
 		return handler.expire(args)
 	case "TTL":
 		return handler.ttl(args)
+	// Pub/Sub commands
+	case "PUBLISH":
+		return handler.publish(args)
+	case "SUBSCRIBE":
+		return handler.subscribe(args)
+	case "UNSUBSCRIBE":
+		return handler.unsubscribe(args)
+	case "PSUBSCRIBE":
+		return handler.psubscribe(args)
+	case "PUNSUBSCRIBE":
+		return handler.punsubscribe(args)
 	default:
 		return EncodeError("ERR unknown command '" + cmd + "'")
 	}
@@ -497,6 +508,93 @@ func (h *Handler) ttl(args []string) string {
 		return EncodeInteger(-2)
 	}
 	return EncodeInteger(int64(ttl))
+}
+
+// ==================== Pub/Sub Commands ====================
+
+// publish handles the PUBLISH command
+func (h *Handler) publish(args []string) string {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'publish' command")
+	}
+	channel := args[0]
+	message := args[1]
+
+	count := Publish(channel, message)
+	return EncodeInteger(int64(count))
+}
+
+// subscribe handles the SUBSCRIBE command
+func (h *Handler) subscribe(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'subscribe' command")
+	}
+
+	// Create a temporary subscriber for tracking
+	sub := &Subscriber{}
+	Subscribe(sub, args...)
+	channels := args
+
+	// Return subscription confirmation messages
+	result := make([]string, 0, len(channels)*2)
+	for _, ch := range channels {
+		result = append(result, "subscribe", ch)
+	}
+	return EncodeArray(result)
+}
+
+// unsubscribe handles the UNSUBSCRIBE command
+func (h *Handler) unsubscribe(args []string) string {
+	// If no channels provided, unsubscribe from all
+	if len(args) == 0 {
+		return EncodeArray([]string{"unsubscribe"})
+	}
+
+	// Create a temporary subscriber for tracking
+	sub := &Subscriber{}
+	Unsubscribe(sub, args...)
+
+	result := make([]string, 0, len(args)*2)
+	for _, ch := range args {
+		result = append(result, "unsubscribe", ch)
+	}
+	return EncodeArray(result)
+}
+
+// psubscribe handles the PSUBSCRIBE command
+func (h *Handler) psubscribe(args []string) string {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'psubscribe' command")
+	}
+
+	// Create a temporary subscriber for tracking
+	sub := &Subscriber{}
+	PSubscribe(sub, args...)
+	patterns := args
+
+	result := make([]string, 0, len(patterns)*2)
+	for _, pat := range patterns {
+		result = append(result, "psubscribe", pat)
+	}
+	return EncodeArray(result)
+}
+
+// punsubscribe handles the PUNSUBSCRIBE command
+func (h *Handler) punsubscribe(args []string) string {
+	// If no patterns provided, unsubscribe from all
+	if len(args) == 0 {
+		return EncodeArray([]string{"punsubscribe"})
+	}
+
+	// Create a temporary subscriber for tracking
+	sub := &Subscriber{}
+	PUnsubscribe(sub, args...)
+
+	result := make([]string, 0, len(args)*2)
+	for _, pat := range args {
+		result = append(result, "punsubscribe", pat)
+	}
+	return EncodeArray(result)
 }
 
 // Debug helper

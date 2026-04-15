@@ -17,6 +17,7 @@ func main() {
 	testHashCommands()
 	testSetCommands()
 	testExpireTTL()
+	testPubSubCommands()
 
 	fmt.Println()
 	fmt.Println("=== All Tests Complete ===")
@@ -236,6 +237,42 @@ func testExpireTTL() {
 	// TTL on non-existing key
 	resp = sendCommand("*2\r\n$3\r\nTTL\r\n$8\r\nnonexist\r\n")
 	fmt.Printf("TTL nonexist: %q (expected: :-2)\n", resp)
+
+	fmt.Println()
+}
+
+// ==================== Pub/Sub Commands ====================
+
+func testPubSubCommands() {
+	fmt.Println("--- Pub/Sub Commands ---")
+
+	// PUBLISH to a channel
+	resp := sendCommand("*3\r\n$7\r\nPUBLISH\r\n$7\r\nnews\r\n$5\r\nhello\r\n")
+	fmt.Printf("PUBLISH news hello: %q (expected: :0, no subscribers yet)\n", resp)
+
+	// SUBSCRIBE to a channel
+	resp = sendCommand("*2\r\n$9\r\nSUBSCRIBE\r\n$4\r\nnews\r\n")
+	fmt.Printf("SUBSCRIBE news: %q\n", resp)
+
+	// PUBLISH again after subscription
+	resp = sendCommand("*3\r\n$7\r\nPUBLISH\r\n$7\r\nnews\r\n$5\r\nworld\r\n")
+	fmt.Printf("PUBLISH news world (with subscriber): %q (expected: :1)\n", resp)
+
+	// PSUBSCRIBE to a pattern
+	resp = sendCommand("*2\r\n$10\r\nPSUBSCRIBE\r\n$5\r\nnews.*\r\n")
+	fmt.Printf("PSUBSCRIBE news.*: %q\n", resp)
+
+	// PUBLISH to matching channel
+	resp = sendCommand("*3\r\n$7\r\nPUBLISH\r\n$7\r\nnews.tech\r\n$4\r\ngogo\r\n")
+	fmt.Printf("PUBLISH news.tech gogo (pattern match): %q (expected: :1)\n", resp)
+
+	// UNSUBSCRIBE
+	resp = sendCommand("*2\r\n$11\r\nUNSUBSCRIBE\r\n$4\r\nnews\r\n")
+	fmt.Printf("UNSUBSCRIBE news: %q\n", resp)
+
+	// PUNSUBSCRIBE
+	resp = sendCommand("*2\r\n$12\r\nPUNSUBSCRIBE\r\n$5\r\nnews.*\r\n")
+	fmt.Printf("PUNSUBSCRIBE news.*: %q\n", resp)
 
 	fmt.Println()
 }

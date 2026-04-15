@@ -454,3 +454,177 @@ func SRem(key string, members ...string) int {
 	}
 	return count
 }
+
+// ==================== Pub/Sub ====================
+
+// Subscriber represents a client subscription
+type Subscriber struct {
+	Channels map[string]bool
+	Patterns map[string]bool
+}
+
+// PubSub manages publish/subscribe state
+type PubSub struct {
+	mu         sync.RWMutex
+	subscribers map[string]map[*Subscriber]bool
+	patterns    map[string]map[*Subscriber]bool
+}
+
+var pubsub *PubSub
+
+func init() {
+	pubsub = &PubSub{
+		subscribers: make(map[string]map[*Subscriber]bool),
+		patterns:    make(map[string]map[*Subscriber]bool),
+	}
+}
+
+// Publish publishes a message to a channel
+func Publish(channel, message string) int {
+	pubsub.mu.Lock()
+	defer pubsub.mu.Unlock()
+
+	count := 0
+
+	// Send to exact channel subscribers
+	if subs, ok := pubsub.subscribers[channel]; ok {
+		for range subs {
+			count++
+		}
+	}
+
+	// Send to pattern subscribers
+	for pattern, subs := range pubsub.patterns {
+		if matchPattern(pattern, channel) {
+			for range subs {
+				count++
+			}
+		}
+	}
+
+	return count
+}
+
+// Subscribe subscribes a client to channels
+func Subscribe(sub *Subscriber, channels ...string) {
+	pubsub.mu.Lock()
+	defer pubsub.mu.Unlock()
+
+	for _, ch := range channels {
+		if sub.Channels == nil {
+			sub.Channels = make(map[string]bool)
+		}
+		sub.Channels[ch] = true
+
+		if pubsub.subscribers[ch] == nil {
+			pubsub.subscribers[ch] = make(map[*Subscriber]bool)
+		}
+		pubsub.subscribers[ch][sub] = true
+	}
+}
+
+// Unsubscribe unsubscribes a client from channels
+func Unsubscribe(sub *Subscriber, channels ...string) {
+	pubsub.mu.Lock()
+	defer pubsub.mu.Unlock()
+
+	if len(channels) == 0 {
+		// Unsubscribe from all
+		for ch := range sub.Channels {
+			if pubsub.subscribers[ch] != nil {
+				delete(pubsub.subscribers[ch], sub)
+			}
+		}
+		sub.Channels = make(map[string]bool)
+		for pat := range sub.Patterns {
+			if pubsub.patterns[pat] != nil {
+				delete(pubsub.patterns[pat], sub)
+			}
+		}
+		sub.Patterns = make(map[string]bool)
+		return
+	}
+
+	for _, ch := range channels {
+		if sub.Channels != nil {
+			delete(sub.Channels, ch)
+		}
+		if pubsub.subscribers[ch] != nil {
+			delete(pubsub.subscribers[ch], sub)
+		}
+	}
+}
+
+// PSubscribe subscribes a client to patterns
+func PSubscribe(sub *Subscriber, patterns ...string) {
+	pubsub.mu.Lock()
+	defer pubsub.mu.Unlock()
+
+	for _, pat := range patterns {
+		if sub.Patterns == nil {
+			sub.Patterns = make(map[string]bool)
+		}
+		sub.Patterns[pat] = true
+
+		if pubsub.patterns[pat] == nil {
+			pubsub.patterns[pat] = make(map[*Subscriber]bool)
+		}
+		pubsub.patterns[pat][sub] = true
+	}
+}
+
+// PUnsubscribe unsubscribes a client from patterns
+func PUnsubscribe(sub *Subscriber, patterns ...string) {
+	pubsub.mu.Lock()
+	defer pubsub.mu.Unlock()
+
+	if len(patterns) == 0 {
+		// Unsubscribe from all patterns
+		for pat := range sub.Patterns {
+			if pubsub.patterns[pat] != nil {
+				delete(pubsub.patterns[pat], sub)
+			}
+		}
+		sub.Patterns = make(map[string]bool)
+		return
+	}
+
+	for _, pat := range patterns {
+		if sub.Patterns != nil {
+			delete(sub.Patterns, pat)
+		}
+		if pubsub.patterns[pat] != nil {
+			delete(pubsub.patterns[pat], sub)
+		}
+	}
+}
+
+// matchPattern checks if a channel matches a pattern
+func matchPattern(pattern, channel string) bool {
+	// Simple pattern matching: * matches any characters
+	i := 0
+	j := 0
+	for i < len(pattern) && j < len(channel) {
+		if pattern[i] == '*' {
+			// Star matches any sequence
+			i++
+			if i >= len(pattern) {
+				return true
+			}
+			// Find next character after star
+			for j < len(channel) && channel[j] != pattern[i] {
+				j++
+			}
+		} else if pattern[i] == '?' {
+			// Question matches any single character
+			i++
+			j++
+		} else if pattern[i] == channel[j] {
+			i++
+			j++
+		} else {
+			return false
+		}
+	}
+	return i >= len(pattern) && j >= len(channel)
+}
