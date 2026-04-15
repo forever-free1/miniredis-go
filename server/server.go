@@ -42,6 +42,9 @@ func (s *RedisServer) handleConnection(conn net.Conn) {
 
 	fmt.Printf("Client connected from %s\n", conn.RemoteAddr().String())
 
+	// Create a handler for this connection to maintain transaction state
+	handler := NewHandler()
+
 	buf := make([]byte, 1024)
 	for {
 		n, err := conn.Read(buf)
@@ -56,8 +59,8 @@ func (s *RedisServer) handleConnection(conn net.Conn) {
 		// Parse command
 		cmd, args := ParseCommand(request)
 
-		// Execute command
-		response := ExecuteCommand(cmd, args)
+		// Execute command (pass handler for transaction state)
+		response := handler.ExecuteCommand(cmd, args)
 
 		// Write response
 		_, err = conn.Write([]byte(response))

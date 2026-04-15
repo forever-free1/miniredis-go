@@ -18,6 +18,7 @@ func main() {
 	testSetCommands()
 	testExpireTTL()
 	testPubSubCommands()
+	testTransactionCommands()
 
 	fmt.Println()
 	fmt.Println("=== All Tests Complete ===")
@@ -275,4 +276,69 @@ func testPubSubCommands() {
 	fmt.Printf("PUNSUBSCRIBE news.*: %q\n", resp)
 
 	fmt.Println()
+}
+
+// ==================== Transaction Commands ====================
+
+func testTransactionCommands() {
+	fmt.Println("--- Transaction Commands ---")
+
+	// Use a persistent connection for transaction tests
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// MULTI - start transaction
+	resp := sendCommandConn(conn, "*1\r\n$5\r\nMULTI\r\n")
+	fmt.Printf("MULTI: %q (expected: +OK)\n", resp)
+
+	// Queue commands (should return QUEUED)
+	resp = sendCommandConn(conn, "*3\r\n$3\r\nSET\r\n$3\r\ntx1\r\n$4\r\nval1\r\n")
+	fmt.Printf("SET tx1 val1 (queued): %q (expected: +QUEUED)\n", resp)
+
+	resp = sendCommandConn(conn, "*3\r\n$3\r\nSET\r\n$3\r\ntx2\r\n$4\r\nval2\r\n")
+	fmt.Printf("SET tx2 val2 (queued): %q (expected: +QUEUED)\n", resp)
+
+	resp = sendCommandConn(conn, "*2\r\n$4\r\nINCR\r\n$3\r\ncnt\r\n")
+	fmt.Printf("INCR cnt (queued): %q (expected: +QUEUED)\n", resp)
+
+	// EXEC - execute transaction
+	resp = sendCommandConn(conn, "*1\r\n$4\r\nEXEC\r\n")
+	fmt.Printf("EXEC: %q\n", resp)
+
+	// Verify values were set (new connection)
+	resp = sendCommand("*2\r\n$3\r\nGET\r\n$3\r\ntx1\r\n")
+	fmt.Printf("GET tx1: %q (expected: $4\r\nval1)\n", resp)
+
+	resp = sendCommand("*2\r\n$3\r\nGET\r\n$3\r\ntx2\r\n")
+	fmt.Printf("GET tx2: %q (expected: $4\r\nval2)\n", resp)
+
+	// Test DISCARD (new connection)
+	conn2, _ := net.Dial("tcp", "localhost:6379")
+	resp = sendCommandConn(conn2, "*1\r\n$5\r\nMULTI\r\n")
+	resp = sendCommandConn(conn2, "*3\r\n$3\r\nSET\r\n$3\r\ndx1\r\n$4\r\ndel1\r\n")
+	resp = sendCommandConn(conn2, "*1\r\n$7\r\nDISCARD\r\n")
+	fmt.Printf("DISCARD: %q (expected: +OK)\n", resp)
+	conn2.Close()
+
+	// Verify dx1 was not set
+	resp = sendCommand("*2\r\n$3\r\nGET\r\n$3\r\ndx1\r\n")
+	fmt.Printf("GET dx1 (after discard): %q (expected: $-1)\n", resp)
+
+	// Test EXEC without MULTI (should error)
+	resp = sendCommand("*1\r\n$4\r\nEXEC\r\n")
+	fmt.Printf("EXEC without MULTI: %q (expected: -ERR EXEC without MULTI)\n", resp)
+
+	// Test DISCARD without MULTI (should error)
+	resp = sendCommand("*1\r\n$7\r\nDISCARD\r\n")
+	fmt.Printf("DISCARD without MULTI: %q (expected: -ERR DISCARD without MULTI)\n", resp)
+
+	fmt.Println()
+}
+
+// sendCommandConn sends a command using an existing connection
+func sendCommandConn(conn net.Conn, cmd string) string {
+	conn.Write([]byte(cmd))
+	buf := make([]byte, 4096)
+	n, _ := conn.Read(buf)
+	return string(buf[:n])
 }

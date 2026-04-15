@@ -6,90 +6,233 @@ import (
 	"time"
 )
 
+// TransactionCommand represents a queued command
+type TransactionCommand struct {
+	Cmd  string
+	Args []string
+}
+
 // Handler handles Redis commands
 type Handler struct {
-	// Add data storage here
+	InTransaction bool
+	QueuedCommands []TransactionCommand
 }
 
 // NewHandler creates a new command handler
 func NewHandler() *Handler {
-	return &Handler{}
+	return &Handler{
+		InTransaction: false,
+		QueuedCommands: make([]TransactionCommand, 0),
+	}
 }
 
 // ExecuteCommand executes a Redis command
-func ExecuteCommand(cmd string, args []string) string {
-	handler := NewHandler()
+func (h *Handler) ExecuteCommand(cmd string, args []string) string {
+	// Handle transaction commands first
+	switch cmd {
+	case "MULTI":
+		return h.multi()
+	case "EXEC":
+		return h.exec()
+	case "DISCARD":
+		return h.discard()
+	}
 
+	// If in transaction, queue the command (except EXEC/DISCARD/MULTI)
+	if h.InTransaction {
+		h.QueuedCommands = append(h.QueuedCommands, TransactionCommand{
+			Cmd:  cmd,
+			Args: args,
+		})
+		return EncodeSimpleString("QUEUED")
+	}
+
+	// Execute command directly
 	switch cmd {
 	case "PING":
-		return handler.ping(args)
+		return h.ping(args)
 	case "GET":
-		return handler.get(args)
+		return h.get(args)
 	case "SET":
-		return handler.set(args)
+		return h.set(args)
 	case "DEL":
-		return handler.del(args)
+		return h.del(args)
 	case "EXISTS":
-		return handler.exists(args)
+		return h.exists(args)
 	case "INCR":
-		return handler.incr(args)
+		return h.incr(args)
 	case "DECR":
-		return handler.decr(args)
+		return h.decr(args)
 	case "APPEND":
-		return handler.append(args)
+		return h.append(args)
 	case "STRLEN":
-		return handler.strlen(args)
+		return h.strlen(args)
 	// List commands
 	case "LPUSH":
-		return handler.lpush(args)
+		return h.lpush(args)
 	case "RPUSH":
-		return handler.rpush(args)
+		return h.rpush(args)
 	case "LRANGE":
-		return handler.lrange(args)
+		return h.lrange(args)
 	case "LLEN":
-		return handler.llen(args)
+		return h.llen(args)
 	case "LINDEX":
-		return handler.lindex(args)
+		return h.lindex(args)
 	// Hash commands
 	case "HSET":
-		return handler.hset(args)
+		return h.hset(args)
 	case "HGET":
-		return handler.hget(args)
+		return h.hget(args)
 	case "HGETALL":
-		return handler.hgetall(args)
+		return h.hgetall(args)
 	case "HDEL":
-		return handler.hdel(args)
+		return h.hdel(args)
 	case "HEXISTS":
-		return handler.hexists(args)
+		return h.hexists(args)
 	case "HLEN":
-		return handler.hlen(args)
+		return h.hlen(args)
 	// Set commands
 	case "SADD":
-		return handler.sadd(args)
+		return h.sadd(args)
 	case "SMEMBERS":
-		return handler.smembers(args)
+		return h.smembers(args)
 	case "SISMEMBER":
-		return handler.sismember(args)
+		return h.sismember(args)
 	case "SCARD":
-		return handler.scard(args)
+		return h.scard(args)
 	case "SREM":
-		return handler.srem(args)
+		return h.srem(args)
 	// Expire/TTL commands
 	case "EXPIRE":
-		return handler.expire(args)
+		return h.expire(args)
 	case "TTL":
-		return handler.ttl(args)
+		return h.ttl(args)
 	// Pub/Sub commands
 	case "PUBLISH":
-		return handler.publish(args)
+		return h.publish(args)
 	case "SUBSCRIBE":
-		return handler.subscribe(args)
+		return h.subscribe(args)
 	case "UNSUBSCRIBE":
-		return handler.unsubscribe(args)
+		return h.unsubscribe(args)
 	case "PSUBSCRIBE":
-		return handler.psubscribe(args)
+		return h.psubscribe(args)
 	case "PUNSUBSCRIBE":
-		return handler.punsubscribe(args)
+		return h.punsubscribe(args)
+	default:
+		return EncodeError("ERR unknown command '" + cmd + "'")
+	}
+}
+
+// ==================== Transaction Commands ====================
+
+// multi starts a transaction
+func (h *Handler) multi() string {
+	h.InTransaction = true
+	h.QueuedCommands = make([]TransactionCommand, 0)
+	return EncodeSimpleString("OK")
+}
+
+// exec executes all queued commands
+func (h *Handler) exec() string {
+	if !h.InTransaction {
+		return EncodeError("ERR EXEC without MULTI")
+	}
+
+	if len(h.QueuedCommands) == 0 {
+		h.InTransaction = false
+		return EncodeArray([]string{})
+	}
+
+	results := make([]string, 0, len(h.QueuedCommands))
+	for _, tc := range h.QueuedCommands {
+		result := h.executeSingleCommand(tc.Cmd, tc.Args)
+		results = append(results, result)
+	}
+
+	h.InTransaction = false
+	h.QueuedCommands = make([]TransactionCommand, 0)
+
+	return EncodeArray(results)
+}
+
+// discard clears the transaction queue
+func (h *Handler) discard() string {
+	if !h.InTransaction {
+		return EncodeError("ERR DISCARD without MULTI")
+	}
+
+	h.InTransaction = false
+	h.QueuedCommands = make([]TransactionCommand, 0)
+	return EncodeSimpleString("OK")
+}
+
+// executeSingleCommand executes a single command without transaction handling
+func (h *Handler) executeSingleCommand(cmd string, args []string) string {
+	switch cmd {
+	case "PING":
+		return h.ping(args)
+	case "GET":
+		return h.get(args)
+	case "SET":
+		return h.set(args)
+	case "DEL":
+		return h.del(args)
+	case "EXISTS":
+		return h.exists(args)
+	case "INCR":
+		return h.incr(args)
+	case "DECR":
+		return h.decr(args)
+	case "APPEND":
+		return h.append(args)
+	case "STRLEN":
+		return h.strlen(args)
+	case "LPUSH":
+		return h.lpush(args)
+	case "RPUSH":
+		return h.rpush(args)
+	case "LRANGE":
+		return h.lrange(args)
+	case "LLEN":
+		return h.llen(args)
+	case "LINDEX":
+		return h.lindex(args)
+	case "HSET":
+		return h.hset(args)
+	case "HGET":
+		return h.hget(args)
+	case "HGETALL":
+		return h.hgetall(args)
+	case "HDEL":
+		return h.hdel(args)
+	case "HEXISTS":
+		return h.hexists(args)
+	case "HLEN":
+		return h.hlen(args)
+	case "SADD":
+		return h.sadd(args)
+	case "SMEMBERS":
+		return h.smembers(args)
+	case "SISMEMBER":
+		return h.sismember(args)
+	case "SCARD":
+		return h.scard(args)
+	case "SREM":
+		return h.srem(args)
+	case "EXPIRE":
+		return h.expire(args)
+	case "TTL":
+		return h.ttl(args)
+	case "PUBLISH":
+		return h.publish(args)
+	case "SUBSCRIBE":
+		return h.subscribe(args)
+	case "UNSUBSCRIBE":
+		return h.unsubscribe(args)
+	case "PSUBSCRIBE":
+		return h.psubscribe(args)
+	case "PUNSUBSCRIBE":
+		return h.punsubscribe(args)
 	default:
 		return EncodeError("ERR unknown command '" + cmd + "'")
 	}
